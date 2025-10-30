@@ -9,7 +9,6 @@ using MiniProjectManager.API.Middleware;
 using MiniProjectManager.API.Services;
 using MiniProjectManager.API.Services.Interfaces;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container
@@ -50,15 +49,17 @@ builder.Services.AddScoped<IProjectService, ProjectService>();
 builder.Services.AddScoped<ITaskService, TaskService>();
 builder.Services.AddScoped<ISchedulerService, SchedulerService>();
 
-// Configure CORS
+// Configure CORS - UPDATED FOR PRODUCTION
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
+        // Get frontend URL from environment variable or use defaults
         policy.WithOrigins(
             "http://localhost:3000",
             "http://localhost:5173",
-            "https://your-frontend-domain.vercel.app" // Update with your frontend URL
+            "https://pathlock-sanshray-assignment2-front.vercel.app"
+            "https://*.vercel.app" // Allow all Vercel preview deployments
         )
         .AllowAnyHeader()
         .AllowAnyMethod()
@@ -106,19 +107,20 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments for testing
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Mini Project Manager API V1");
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Mini Project Manager API V1");
+    c.RoutePrefix = "swagger"; // Access at /swagger
+});
 
 // Use custom exception handling middleware
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-app.UseHttpsRedirection();
+// For Render deployment - listen on the correct port
+var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+app.Urls.Add($"http://0.0.0.0:{port}");
 
 // Enable CORS
 app.UseCors("AllowFrontend");
@@ -126,6 +128,7 @@ app.UseCors("AllowFrontend");
 // Enable Authentication & Authorization
 app.UseAuthentication();
 app.UseAuthorization();
+
 app.MapControllers();
 
 // Initialize database
@@ -135,16 +138,24 @@ using (var scope = app.Services.CreateScope())
     try
     {
         var context = services.GetRequiredService<AppDbContext>();
+        
+        // Ensure database is created
         context.Database.EnsureCreated();
-        // Uncomment to run migrations automatically
+        
+        // For production, use migrations
         // context.Database.Migrate();
+        
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogInformation("Database initialized successfully");
     }
     catch (Exception ex)
     {
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogError(ex, "An error occurred while initializing the database.");
+        throw; // Re-throw to prevent app from starting with broken database
     }
 }
+
 // Initialize database and seed data
 using (var scope = app.Services.CreateScope())
 {
